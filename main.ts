@@ -4,7 +4,9 @@ import {FileSystemAdapter, MarkdownPostProcessorContext, Plugin, TFile, TFolder,
  *              		MODELS                  
 \ ----------------------------------------------- */
 
+type TSize = 'Small' | 'Medium' | 'Large'
 interface TaskTrackerSetting {
+	size: TSize;
 	colors: Array<string>;
 }
 
@@ -21,14 +23,21 @@ interface TaskeLine {
 	completed: boolean;
 }
 
-interface Taske {
+class Taske {
 	incompleteTask: number;
 	completedTasks: number;
 	list: Array<TaskeLine>
+
+	constructor(incompleteTask: number, completedTasks: number, list: Array<TaskeLine>) {
+		this.incompleteTask = incompleteTask;
+		this.completedTasks = completedTasks;
+		this.list = list;
+	}
 }
 
 const DEFAULT_SETTINGS: TaskTrackerSetting = {
-	colors: ['default']
+	colors: ['default'],
+	size: 'Small'
 }
 
 /** ---------------------------------------------- \
@@ -119,23 +128,19 @@ export default class TaskTracker extends Plugin {
 			if (isCompletedTask) done = done + 1;
 
 			// if (isTaskToDo || isCompletedTask) {
-      //   taskList.push({
-      //     line: index + 1,
-      //     content: line.replace('- [ ]', '').replace('- [x]', '').trim(),
-      //     completed: line.includes('- [x]')
-      //   });
+			// 	const lineNumber: number = index + 1;
+			// 	const content: string = line.replace('- [ ]', '').replace('- [x]', '').trim();
+			// 	const completed: boolean = isCompletedTask;
+      //   taskList.push({ line: lineNumber, content, completed });
       // }
 		});
 
-		tasks = {
-			incompleteTask: todo,
-			completedTasks: done,
-			list: taskList,
-		}
-    
+		tasks = new Taske(todo, done, taskList);
     console.log('Tasks:', tasks);
     return tasks;
 	}
+
+	crateProgressBar(): void {}
 
 	/**
 	 * 
@@ -146,45 +151,8 @@ export default class TaskTracker extends Plugin {
 		el.createEl('div', { text:  `TaskTrackerError: ${errorMessage}` });
 	}
 
-		// onunload() {
+	onunload() {
 
-	// }
+	}
 
-	// async loadSettings() {
-	// 	this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	// }
-
-	// async saveSettings() {
-	// 	await this.saveData(this.settings);
-	// }
 }
-
-
-// class SampleSettingTab extends PluginSettingTab {
-// 	plugin: MyPlugin;
-
-// 	constructor(app: App, plugin: TaskTracker) {
-// 		super(app, plugin);
-// 		this.plugin = plugin;
-// 	}
-
-// 	display(): void {
-// 		const {containerEl} = this;
-
-// 		containerEl.empty();
-
-// 		containerEl.createEl('h2', {text: 'Settings for my awesome plugin.'});
-
-// 		new Setting(containerEl)
-// 			.setName('Setting #1')
-// 			.setDesc('It\'s a secret')
-// 			.addText(text => text
-// 				.setPlaceholder('Enter your secret')
-// 				.setValue(this.plugin.settings.mySetting)
-// 				.onChange(async (value) => {
-// 					console.log('Secret: ' + value);
-// 					this.plugin.settings.mySetting = value;
-// 					await this.plugin.saveSettings();
-// 				}));
-// 	}
-// }
