@@ -105,16 +105,11 @@ export default class TaskTracker extends Plugin {
 	}
 
 	getFileTasks(fileContent: string): Taske {
-		let tasks: Taske;
-
-		console.log('LINES :::::', fileContent);
-
 		const lines: string[] = fileContent.split('\n');
-		console.log('LINES_ARRAY :::::', lines);
-
+		const taskList: TaskeLine[] = [];
+		let tasks: Taske;
 		let todo: number = 0;
 		let done: number = 0;
-		const taskList: TaskeLine[] = [];
 
 		lines.forEach((line: string, index: number) => {
 			const isTaskToDo: boolean = line.includes('- [ ]');
