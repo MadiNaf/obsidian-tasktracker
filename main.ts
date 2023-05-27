@@ -1,137 +1,195 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import {FileSystemAdapter, MarkdownPostProcessorContext, Plugin, TFile, TFolder, normalizePath, parseYaml } from 'obsidian';
 
-// Remember to rename these classes and interfaces!
+/** ---------------------------------------------- \
+ *              		MODELS                  
+\ ----------------------------------------------- */
 
-interface MyPluginSettings {
-	mySetting: string;
+interface TaskTrackerSetting {
+	colors: Array<string>;
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+interface TaskTrackerConfig {
+	path: string;
+	fileName: string;
+	label?: string;
+	config?: TaskTrackerSetting
 }
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+interface TaskeLine {
+	line: number;
+	content: string;
+	completed: boolean;
+}
 
+interface Taske {
+	incompleteTask: number;
+	completedTasks: number;
+	list: Array<TaskeLine>
+}
+
+const DEFAULT_SETTINGS: TaskTrackerSetting = {
+	colors: ['default']
+}
+
+/** ---------------------------------------------- \
+ *              		TaskTracker plugin                  
+\ ----------------------------------------------- */
+export default class TaskTracker extends Plugin {
+	
+	readonly ERROR_MESSAGES: {[key: string] : string} = {
+		invalidPath: 'Invalid path',
+		fileNameNotProvided: 'File name is not provided',
+		fileNotFound: 'File note found!' 
+	}
+
+	fileSystemAdapter: FileSystemAdapter = new FileSystemAdapter();
+	
 	async onload() {
-		await this.loadSettings();
+		this.registerMarkdownCodeBlockProcessor('tasktracker', (source: string, el: HTMLElement, ctx:MarkdownPostProcessorContext ) => {
+			const config = parseYaml(source) as TaskTrackerConfig;
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
-
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
+			if (!config?.path) {
+				this.throwError(el, this.ERROR_MESSAGES.invalidPath);
+				return;
 			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+			if (!config?.fileName) {
+				this.throwError(el, this.ERROR_MESSAGES.fileNameNotProvided);
+				return;
+			}
+
+			this.buildTaskTracker(el, config).then(() => {});
+		});
+	}
+
+	async buildTaskTracker(el: HTMLElement, config: TaskTrackerConfig): Promise<string> {
+		return new Promise(async (resolve, reject) => {
+			console.log('CONFIG ::: ', config);
+			const {path, fileName} = config;
+
+			try {
+				const folder = this.app.vault.getAbstractFileByPath(normalizePath(path));
+
+				if (folder && folder instanceof TFolder) {
+					const file: TFile = this.getFileByName(folder, fileName) as TFile;
+
+					if (!file) reject('TDOD :: error message')
+
+					const fileContent = await this.app.vault.read(file);
+					const tasks = this.getFileTasks(fileContent);
+					console.log('TASKS ::: ', tasks);
 				}
+	
+			} catch (error) {
+				console.log('ERROR :::: ', error);
 			}
 		});
+	}
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+	/**
+	 * 
+	 * @param sourceFolder 
+	 * @param fileName 
+	 * @returns 
+	 */
+	getFileByName(sourceFolder: TFolder, fileName: String): TFile | null {
+		const folderChildren = sourceFolder?.children;
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
+		if (!folderChildren?.length) return null;
+
+		const targetFile = folderChildren.find(child => {
+			return (child instanceof TFile && child.extension === 'md') && child.name === `${fileName}.md`;
 		});
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+		return targetFile as TFile;
 	}
 
-	onunload() {
+	getFileTasks(fileContent: string): Taske {
+		let tasks: Taske;
 
+		console.log('LINES :::::', fileContent);
+
+		const lines: string[] = fileContent.split('\n');
+		console.log('LINES_ARRAY :::::', lines);
+
+		let todo: number = 0;
+		let done: number = 0;
+		const taskList: TaskeLine[] = [];
+
+		lines.forEach((line: string, index: number) => {
+			const isTaskToDo: boolean = line.includes('- [ ]');
+			const isCompletedTask: boolean = line.includes('- [x]');
+
+			if (isTaskToDo) todo = todo + 1 ;
+			if (isCompletedTask) done = done + 1;
+
+			// if (isTaskToDo || isCompletedTask) {
+      //   taskList.push({
+      //     line: index + 1,
+      //     content: line.replace('- [ ]', '').replace('- [x]', '').trim(),
+      //     completed: line.includes('- [x]')
+      //   });
+      // }
+		});
+
+		tasks = {
+			incompleteTask: todo,
+			completedTasks: done,
+			list: taskList,
+		}
+    
+    console.log('Tasks:', tasks);
+    return tasks;
 	}
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+	/**
+	 * 
+	 * @param el 
+	 * @param errorMessage 
+	 */
+	throwError(el: HTMLElement, errorMessage: string) {
+		el.createEl('div', { text:  `TaskTrackerError: ${errorMessage}` });
 	}
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
+		// onunload() {
+
+	// }
+
+	// async loadSettings() {
+	// 	this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+	// }
+
+	// async saveSettings() {
+	// 	await this.saveData(this.settings);
+	// }
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
 
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
+// class SampleSettingTab extends PluginSettingTab {
+// 	plugin: MyPlugin;
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
+// 	constructor(app: App, plugin: TaskTracker) {
+// 		super(app, plugin);
+// 		this.plugin = plugin;
+// 	}
 
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
+// 	display(): void {
+// 		const {containerEl} = this;
 
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
+// 		containerEl.empty();
 
-	display(): void {
-		const {containerEl} = this;
+// 		containerEl.createEl('h2', {text: 'Settings for my awesome plugin.'});
 
-		containerEl.empty();
-
-		containerEl.createEl('h2', {text: 'Settings for my awesome plugin.'});
-
-		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					console.log('Secret: ' + value);
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
-	}
-}
+// 		new Setting(containerEl)
+// 			.setName('Setting #1')
+// 			.setDesc('It\'s a secret')
+// 			.addText(text => text
+// 				.setPlaceholder('Enter your secret')
+// 				.setValue(this.plugin.settings.mySetting)
+// 				.onChange(async (value) => {
+// 					console.log('Secret: ' + value);
+// 					this.plugin.settings.mySetting = value;
+// 					await this.plugin.saveSettings();
+// 				}));
+// 	}
+// }
