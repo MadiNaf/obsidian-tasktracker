@@ -1,8 +1,22 @@
-/*
+.task-tracker-container {
+  margin: 8px 0px;
+  height: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
-
-If your plugin does not need CSS, delete this file.
-
-*/
+.task-tracker-container .task-tracker-progress-bar {
+  width: calc(100% - 40px);
+  height: 100%;
+  border: 2px solid #3B4252;
+  border-radius: 20px;
+  overflow: hidden;
+}
+       
+.task-tracker-container .task-progression-text {
+  font-weight: 500;
+  font-size: 20px;
+  width: 35px;
+  margin-left: 6px;
+}
