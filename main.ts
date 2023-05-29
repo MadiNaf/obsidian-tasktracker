@@ -1,4 +1,4 @@
-import {FileSystemAdapter, MarkdownPostProcessorContext, Plugin, TFile, TFolder, normalizePath, parseYaml } from 'obsidian';
+import {FileSystemAdapter, MarkdownPostProcessorContext, Plugin, TAbstractFile, TFile, TFolder, normalizePath, parseYaml } from 'obsidian';
 
 /** ---------------------------------------------- \
  *              		MODELS                  
@@ -19,6 +19,11 @@ interface TaskeLine {
 	line: number;
 	content: string;
 	completed: boolean;
+}
+
+interface ProgressBarElements {
+	progressionBar: HTMLElement;
+	progressionText: HTMLElement;
 }
 
 class Taske {
@@ -42,15 +47,14 @@ const YELLOW = '#EBCB8B';
 const GREEN = '#A3BE8C';
 
 const SIZES: {[key: string]: string} = {
-  sbar: '220px',
-  mbar: '245px',
-  lbar: '270px',
-  xlbar: '295px'
+  SMALL: '250px',
+  MEDIUM: '350px',
+  LARGE: '400px'
 }
 
 const DEFAULT_SETTINGS: TaskTrackerSetting = {
 	colors: [RED, ORANGE, YELLOW, GREEN],
-	size: SIZES.sbar
+	size: SIZES.SMALL
 }
 
 /** ---------------------------------------------- \
@@ -67,7 +71,7 @@ export default class TaskTracker extends Plugin {
 	fileSystemAdapter: FileSystemAdapter = new FileSystemAdapter();
 	
 	async onload() {
-		this.registerMarkdownCodeBlockProcessor('tasktracker', (source: string, el: HTMLElement, ctx:MarkdownPostProcessorContext ) => {
+		this.registerMarkdownCodeBlockProcessor('tasktracker', (source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext ) => {
 			const config = parseYaml(source) as TaskTrackerConfig;
 
 			if (!config?.path) {
@@ -80,10 +84,16 @@ export default class TaskTracker extends Plugin {
 				return;
 			}
 
-			this.buildTaskTracker(el, config).then(() => {});
+			this.buildTaskTracker(el, config).then((progressBarElements: ProgressBarElements) => {
+				this.app.vault.on( 'modify', async (file: TAbstractFile) => {
+					const msgStatus = await this.updateTaskTrackerAfterFileChange(file as TFile, config, progressBarElements);
+					console.log(msgStatus)
+				});
+			}).catch((error) => {
+				console.error(error)
+			});
 		});
 
-		// this.app.workspace.on('active-leaf-change', (leaf: WorkspaceLeaf) => {});
 	}
 
 	/**
@@ -92,11 +102,9 @@ export default class TaskTracker extends Plugin {
 	 * @param config 
 	 * @returns 
 	 */
-	async buildTaskTracker(el: HTMLElement, config: TaskTrackerConfig): Promise<string> {
+	async buildTaskTracker(el: HTMLElement, config: TaskTrackerConfig): Promise<string | ProgressBarElements> {
 		return new Promise(async (resolve, reject) => {
-			console.log('CONFIG ::: ', config);
 			const {path, fileName} = config;
-
 			try {
 				const folder = this.app.vault.getAbstractFileByPath(normalizePath(path));
 
@@ -107,12 +115,33 @@ export default class TaskTracker extends Plugin {
 
 					const fileContent = await this.app.vault.read(file);
 					const tasks = this.getFileTasks(fileContent);
-					console.log('TASKS ::: ', tasks);
-					this.crateProgressBar(el, config, tasks);
+					const progressBarElements = this.crateProgressBar(el, config, tasks);
+					resolve(progressBarElements);
 				}
 	
 			} catch (error) {
-				console.log('ERROR :::: ', error);
+				reject(`BUILD_ERROR :: ${error}`);
+			}
+		});
+	}
+
+	async updateTaskTrackerAfterFileChange(file: TFile, config: TaskTrackerConfig, progressBarElements: ProgressBarElements): Promise<String> {
+		return new Promise(async (resolve, reject) => {
+			try {
+				const fileContent = await this.app.vault.read(file);
+				const tasks = this.getFileTasks(fileContent);
+				const taskProgression: number = this.getTaskProgression(tasks);
+				const { colors } = this.getUserSettings(config);
+				const color: string = this.getProgressionColor(taskProgression, colors);
+		
+				const { progressionBar, progressionText} = progressBarElements;
+				progressionBar.style.width = `${taskProgression}%`;
+				progressionBar.style.backgroundColor = color;
+		
+				progressionText.innerHTML = `${taskProgression}%`;
+				resolve('OK');
+			} catch (error) {
+				reject(`UPDATE_ERROR :: ${error}`);
 			}
 		});
 	}
@@ -166,22 +195,31 @@ export default class TaskTracker extends Plugin {
     return tasks;
 	}
 
+	getTaskProgression(tasks: Taske): number {
+		const { completedTasks, incompleteTask } = tasks;
+		const total: number = completedTasks + incompleteTask;
+		return Math.floor((completedTasks / total) * 100);
+	}
+
+	getUserSettings(config: TaskTrackerConfig): TaskTrackerSetting {
+		const { settings } = config;
+		const size = !!settings?.size ? settings.size : DEFAULT_SETTINGS.size;
+		const colors = !!settings?.colors ? settings.colors : DEFAULT_SETTINGS.colors;
+		return { size, colors };
+	}
+
 	/**
 	 * 
 	 * @param el 
 	 * @param config 
 	 * @param tasks 
 	 */
-	crateProgressBar(el: HTMLElement, config: TaskTrackerConfig, tasks: Taske): void {
-		// Progression 
-		const { completedTasks, incompleteTask } = tasks;
-		const total: number = completedTasks + incompleteTask;
-		const taskProgression: number = Math.floor((completedTasks / total) * 100);
+	crateProgressBar(el: HTMLElement, config: TaskTrackerConfig, tasks: Taske): ProgressBarElements {
+		// Progression
+		const taskProgression: number = this.getTaskProgression(tasks);
 
 		// Get user settings or use default
-		const { settings } = config;
-		const size = settings?.size ? settings.size : DEFAULT_SETTINGS.size;
-		const colors = settings?.colors ? settings.colors : DEFAULT_SETTINGS.colors;
+		const { size, colors } = this.getUserSettings(config);
 		const color: string = this.getProgressionColor(taskProgression, colors);
 
 		// Progress bar container HTML element
@@ -206,10 +244,12 @@ export default class TaskTracker extends Plugin {
 		progressionText.appendChild(textNode);
 
 		// Build HTML structure
-		progressBarElement.appendChild(progressionElement)
-		progressbarContainer.appendChild(progressBarElement)
-		progressbarContainer.appendChild(progressionText)
-		el.appendChild(progressbarContainer)
+		progressBarElement.appendChild(progressionElement);
+		progressbarContainer.appendChild(progressBarElement);
+		progressbarContainer.appendChild(progressionText);
+		el.appendChild(progressbarContainer);
+
+		return { progressionBar: progressionElement, progressionText};
 	}
 
 	/**
