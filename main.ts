@@ -1,4 +1,15 @@
-import {FileSystemAdapter, MarkdownEditView, MarkdownPostProcessorContext, MarkdownPreviewView, Plugin, TAbstractFile, TFile, TFolder, ViewState, WorkspaceLeaf, normalizePath, parseYaml } from 'obsidian';
+import {
+	Editor,
+	FileSystemAdapter,
+	MarkdownPostProcessorContext,
+	Plugin,
+	TAbstractFile,
+	TFile,
+	TFolder,
+	ViewState,
+	normalizePath,
+	parseYaml
+} from 'obsidian';
 
 /** ---------------------------------------------- \
  *              		MODELS                  
@@ -60,6 +71,10 @@ const DEFAULT_SETTINGS: TaskTrackerSetting = {
 const CONTAINER_BASE_ID = 'task-tracker-container';
 const PROGRESSION_BAR_BASE_ID = 'task-tracker-progression-bar';
 const PROGRESSION_TEXT_BASE_ID = 'task-tracker-progression-text';
+
+const TASK_TODO = '- [ ]';
+const TASK_DONE_LOW = '- [x]';
+const TASK_TODO_UPP = '- [X]';
 
 /** ---------------------------------------------- \
  *              		TaskTracker plugin                  
@@ -155,16 +170,20 @@ export default class TaskTracker extends Plugin {
 				
 				if (progressionText) progressionText.setText(`${taskProgression}%`);
 
+				// -----------> POC using workspace leaf
 				const leaf = this.app.workspace.getLeaf();
-				let currentState = leaf.getViewState();
-				const currentView = leaf.view;
-				currentState = { ...currentState, mode: 'preview', source: false } as ViewState;
+				let currentViewState = leaf.getViewState();
+				// const currentView = leaf.view;
+				let currentState = currentViewState?.state;
+				currentState = { ...currentState, mode: 'preview', source: true };
+				currentViewState = {...currentViewState, state: currentState };
 
-				leaf.setViewState(currentState);
+
+				leaf.setViewState(currentViewState);
 				this.app.workspace.setActiveLeaf(leaf);
-				console.log('CURRNET_VIEW_STATE :: ', currentState);
+				console.log('CURRNET_VIEW_STATE :: ', currentViewState);
 				console.log('CURRENT_LEAF :: ', leaf);
-
+				// <----------- 
 				resolve('OK');
 			} catch (error) {
 				reject(`UPDATE_ERROR :: ${error}`);
@@ -203,8 +222,8 @@ export default class TaskTracker extends Plugin {
 		let done: number = 0;
 
 		lines.forEach((line: string, index: number) => {
-			const isTaskToDo: boolean = line.includes('- [ ]');
-			const isCompletedTask: boolean = line.includes('- [x]');
+			const isTaskToDo: boolean = line.includes(TASK_TODO);
+			const isCompletedTask: boolean = line.includes(TASK_DONE_LOW) || line.includes(TASK_TODO_UPP);
 
 			if (isTaskToDo) todo = todo + 1 ;
 			if (isCompletedTask) done = done + 1;
